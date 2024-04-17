@@ -420,11 +420,11 @@ generate_exhaustive!(
 mod dpw_inc_prec {
     use rustsat::{
         encodings::pb::{dpw::DynamicPolyWatchdog, BoundUpper, BoundUpperIncremental},
-        instances::{BasicVarManager, Cnf, ManageVars},
+        instances::{BasicVarManager, Cnf, ManageVars, OptInstance},
         lit,
         solvers::{
             Solve, SolveIncremental,
-            SolverResult::{Sat, Unsat},
+            SolverResult::{self, Sat, Unsat},
         },
         types::RsHashMap,
         var,
@@ -497,5 +497,95 @@ mod dpw_inc_prec {
                 }
             }
         }
+    }
+
+    #[test]
+    fn incremental_precision_2() {
+        let inst: OptInstance = OptInstance::from_dimacs_path("./data/inc-sis-fails.wcnf").unwrap();
+        let (constr, obj) = inst.decompose();
+        let (cnf, mut vm) = constr.as_cnf();
+        let (hardened, (softs, offset)) = obj.as_soft_lits(&mut vm);
+        debug_assert!(hardened.is_empty());
+        debug_assert_eq!(offset, 0);
+        let mut solver = rustsat_minisat::core::Minisat::default();
+        solver.add_cnf(cnf).unwrap();
+        let mut enc = DynamicPolyWatchdog::from_iter(softs);
+
+        enc.set_precision(8192).unwrap();
+        enc.encode_ub_change(0..=1, &mut solver, &mut vm);
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(1).unwrap()).unwrap(),
+            SolverResult::Sat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(0).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
+
+        enc.set_precision(1024).unwrap();
+        enc.encode_ub_change(0..=9, &mut solver, &mut vm);
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(9).unwrap()).unwrap(),
+            SolverResult::Sat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(8).unwrap()).unwrap(),
+            SolverResult::Sat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(7).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(0).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
+    }
+
+    #[test]
+    fn incremental_precision_3() {
+        let inst: OptInstance = OptInstance::from_dimacs_path("./data/inc-sis-fails.wcnf").unwrap();
+        let (constr, obj) = inst.decompose();
+        let (cnf, mut vm) = constr.as_cnf();
+        let (hardened, (softs, offset)) = obj.as_soft_lits(&mut vm);
+        debug_assert!(hardened.is_empty());
+        debug_assert_eq!(offset, 0);
+        let mut solver = rustsat_minisat::core::Minisat::default();
+        solver.add_cnf(cnf).unwrap();
+        let mut enc = DynamicPolyWatchdog::from_iter(softs);
+
+        enc.set_precision(2048).unwrap();
+        enc.encode_ub_change(0..=4, &mut solver, &mut vm);
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(4).unwrap()).unwrap(),
+            SolverResult::Sat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(2).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(0).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
+
+        enc.set_precision(1024).unwrap();
+        enc.encode_ub_change(0..=9, &mut solver, &mut vm);
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(9).unwrap()).unwrap(),
+            SolverResult::Sat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(8).unwrap()).unwrap(),
+            SolverResult::Sat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(7).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
+        debug_assert_eq!(
+            solver.solve_assumps(&enc.enforce_ub(0).unwrap()).unwrap(),
+            SolverResult::Unsat
+        );
     }
 }

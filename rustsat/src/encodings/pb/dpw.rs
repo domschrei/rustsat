@@ -28,6 +28,7 @@ use crate::{
         CollectClauses, EncodeStats, Error, IterWeightedInputs,
     },
     instances::ManageVars,
+    lit,
     types::{Lit, RsHashMap},
     utils,
 };
@@ -152,11 +153,14 @@ impl DynamicPolyWatchdog {
 #[derive(Clone)]
 pub(crate) struct Structure {
     /// The bottom buckets of the encoding. The first one of them is the root of the encoding.
-    /// Sorted from highest to lowest.
+    /// Sorted from highest to lowest. This might skip some bottom buckets, if their level is
+    /// empty.
     pub bottom_buckets: Vec<NodeId>,
     /// The tare variables needed to enforce specific bounds. First in vector is
     /// the tare to the second largest top bucket, then decreasing.
     pub tares: Vec<Lit>,
+    /// The precision level of this structure
+    prec_div: usize,
 }
 
 impl Structure {
@@ -578,6 +582,7 @@ fn build_structure(
     let mut structure = Structure {
         bottom_buckets: Vec::with_capacity(basis_len),
         tares: Vec::with_capacity(basis_len - 1),
+        prec_div,
     };
 
     // Children to be merged to a given top bucket
@@ -614,6 +619,7 @@ fn build_structure(
         return Structure {
             bottom_buckets: vec![top_buckets[0][0].id],
             tares: vec![],
+            prec_div,
         };
     }
 
@@ -622,11 +628,6 @@ fn build_structure(
         (0..basis_len - skipped_levels - if topmost { 1 } else { 0 })
             .map(|_| var_manager.new_var().pos_lit()),
     );
-    let tare_nodes: Vec<_> = structure
-        .tares
-        .iter()
-        .map(|&lit| tot_db.insert(Node::Leaf(lit)))
-        .collect();
 
     // Merge top buckets and merge with bottom buckets
     let mut bottom_buckets = Vec::with_capacity(basis_len - skipped_levels);
@@ -634,7 +635,8 @@ fn build_structure(
     for (idx, mut cons) in top_buckets.into_iter().enumerate() {
         let has_tare = if !topmost || idx != basis_len - skipped_levels - 1 {
             // Merge top bucket (except for last) with tare
-            cons.push(NodeCon::full(tare_nodes[idx]));
+            let tare = structure.tares[idx];
+            cons.push(NodeCon::full(tot_db.insert(Node::Leaf(tare))));
             true
         } else {
             false
@@ -643,7 +645,6 @@ fn build_structure(
         let top_bucket = tot_db.merge_balanced(&cons);
         if bottom_buckets.is_empty() {
             // special case: lowest bucket either gets dummy or no bottom bucket
-            // TODO: figure out how to skip levels in the middle if they are empty
             if has_tare && tot_db.con_len(top_bucket) == 1 {
                 // top bucket is empty (except for tare), tare can be
                 // omitted: shift to next layer
@@ -677,7 +678,6 @@ fn build_structure(
         bb_offset = 0;
     }
 
-    debug_assert_eq!(bottom_buckets.len(), basis_len - skipped_levels);
     structure
         .bottom_buckets
         .extend(bottom_buckets.into_iter().rev());
@@ -694,11 +694,62 @@ fn merge_structures<Col>(
 ) where
     Col: CollectClauses,
 {
-    debug_assert_eq!(bot_struct.bottom_buckets.len(), bot_struct.tares.len() + 1);
-    debug_assert_eq!(top_struct.bottom_buckets.len(), top_struct.tares.len());
+    debug_assert!(
+        bot_struct.prec_div >= top_struct.prec_div * 2_usize.pow(top_struct.tares.len() as u32 - 1)
+    );
+    let skipped_between: usize = (utils::digits(
+        bot_struct.prec_div / (top_struct.prec_div * 2_usize.pow(top_struct.tares.len() as u32)),
+        2,
+    ) - 1)
+        .try_into()
+        .expect("error fitting u32 into usize");
+    let n_old_tares = bot_struct.tares.len();
+    let n_old_bbs = bot_struct.bottom_buckets.len();
+    bot_struct.prec_div = top_struct.prec_div;
+    // step 1: rearrange tares, make space for new tares, move old ones to the back, put new tares
+    // in structure
+    bot_struct.tares.resize(
+        bot_struct.tares.len() + top_struct.tares.len() + skipped_between,
+        lit![0],
+    );
+    bot_struct.tares[..].copy_within(..n_old_tares, top_struct.tares.len() + skipped_between);
+    for tare_idx in top_struct.tares.len()..top_struct.tares.len() + skipped_between {
+        bot_struct.tares[tare_idx] = var_manager.new_var().pos_lit();
+    }
+    bot_struct.tares[..top_struct.tares.len()].copy_from_slice(&top_struct.tares);
+    // step 2: add tares that were previously unnecessary in bot_struct and additional tares that
+    // need to go inbetween the structures. this adds some new bottom buckets
+    for &tare in bot_struct.tares[top_struct.tares.len()..bot_struct.tares.len() - (n_old_bbs - 1)]
+        .iter()
+        .rev()
+    {
+        let dummy = tot_db.insert(Node::Dummy);
+        let right = NodeCon::full(dummy);
+        let tare_node = tot_db.insert(Node::Leaf(tare));
+        let new_bottom = tot_db.insert(Node::internal(NodeCon::full(tare_node), right, tot_db));
+        let last_bottom = *bot_struct.bottom_buckets.last().unwrap();
+        debug_assert_eq!(tot_db[tot_db[last_bottom].right().unwrap().id], Node::Dummy);
+        match &mut tot_db[last_bottom] {
+            Node::Leaf(_) | Node::Dummy => unreachable!(),
+            Node::Unit(UnitNode { right, .. }) | Node::General(GeneralNode { right, .. }) => {
+                *right = NodeCon {
+                    id: new_bottom,
+                    offset: 0,
+                    divisor: NonZeroU8::new(2).unwrap(),
+                    multiplier: NonZeroUsize::new(1).unwrap(),
+                    len_limit: None,
+                }
+            }
+        }
+        bot_struct.bottom_buckets.push(new_bottom);
+    }
+    debug_assert_eq!(
+        bot_struct.bottom_buckets.len(),
+        bot_struct.tares.len() - top_struct.tares.len() + 1
+    );
+    // step 3: patch together structures
     let last_bottom = *bot_struct.bottom_buckets.last().unwrap();
     debug_assert_eq!(tot_db[tot_db[last_bottom].right().unwrap().id], Node::Dummy);
-    // patch together structures
     match &mut tot_db[last_bottom] {
         Node::Leaf(_) | Node::Dummy => panic!(),
         Node::Unit(UnitNode { right, .. }) | Node::General(GeneralNode { right, .. }) => {
@@ -711,9 +762,15 @@ fn merge_structures<Col>(
             }
         }
     }
-    // extend old bottom buckets
+    // step 4: concatenate bottom buckets
+    let n_top_bbs = top_struct.bottom_buckets.len();
+    bot_struct.bottom_buckets.extend(top_struct.bottom_buckets);
+    // step 5: extend old bottom buckets
     let mut old_right_max = 0;
-    for &bbid in bot_struct.bottom_buckets.iter().rev() {
+    for &bbid in bot_struct.bottom_buckets[..bot_struct.bottom_buckets.len() - n_top_bbs]
+        .iter()
+        .rev()
+    {
         let bot_buck = &tot_db[bbid];
         let right = bot_buck.right().unwrap();
         let right_max = tot_db.con_len(right);
@@ -760,15 +817,6 @@ fn merge_structures<Col>(
         debug_assert!(bot_buck.lits.len() <= len);
         bot_buck.lits.resize(len, LitData::None);
     }
-    // extend structure
-    bot_struct.bottom_buckets.extend(top_struct.bottom_buckets);
-    let old_tares = bot_struct.tares.len();
-    bot_struct.tares.resize(
-        bot_struct.tares.len() + top_struct.tares.len(),
-        Lit::new(0, false),
-    );
-    bot_struct.tares[..].copy_within(..old_tares, top_struct.tares.len());
-    bot_struct.tares[..top_struct.tares.len()].copy_from_slice(&top_struct.tares)
 }
 
 #[cfg_attr(feature = "internals", visibility::make(pub))]
@@ -821,11 +869,14 @@ fn enforce_ub(dpw: &Structure, ub: usize, tot_db: &TotDb) -> Result<Vec<Lit>, Er
 #[cfg(test)]
 mod tests {
     use crate::{
-        encodings::{pb::BoundUpper, EncodeStats},
+        encodings::{
+            pb::{BoundUpper, BoundUpperIncremental},
+            EncodeStats,
+        },
         instances::{BasicVarManager, Cnf},
         lit,
-        types::RsHashMap,
-        types::Var,
+        types::{RsHashMap, Var},
+        var,
     };
 
     use super::DynamicPolyWatchdog;
@@ -884,7 +935,7 @@ mod tests {
         let mut dpw = DynamicPolyWatchdog::from(lits);
         let mut var_manager = BasicVarManager::default();
         let mut cnf = Cnf::new();
-        dpw.encode_ub(0..23, &mut cnf, &mut var_manager);
+        dpw.encode_ub_change(0..23, &mut cnf, &mut var_manager);
         for ub in 7..23 {
             let coarse_ub = dpw.coarse_ub(ub);
             debug_assert!(coarse_ub <= ub);
@@ -906,7 +957,7 @@ mod tests {
         let mut dpw = DynamicPolyWatchdog::from(lits);
         let mut var_manager = BasicVarManager::default();
         let mut cnf = Cnf::new();
-        dpw.encode_ub(0..=4, &mut cnf, &mut var_manager);
+        dpw.encode_ub_change(0..=4, &mut cnf, &mut var_manager);
         for ub in 0..4 {
             let coarse_ub = dpw.coarse_ub(ub);
             debug_assert_eq!(coarse_ub, ub);
@@ -928,27 +979,105 @@ mod tests {
         debug_assert_eq!(dpw.next_precision(), 8);
         dpw.set_precision(8).unwrap();
         let mut cnf = Cnf::new();
-        dpw.encode_ub(0..=4, &mut cnf, &mut var_manager);
+        dpw.encode_ub_change(0..=4, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
         // step 2
         debug_assert_eq!(dpw.next_precision(), 4);
         dpw.set_precision(4).unwrap();
         let mut cnf = Cnf::new();
-        dpw.encode_ub(0..=4, &mut cnf, &mut var_manager);
+        dpw.encode_ub_change(0..=4, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
         // step 3
         debug_assert_eq!(dpw.next_precision(), 2);
         dpw.set_precision(2).unwrap();
         let mut cnf = Cnf::new();
-        dpw.encode_ub(0..=4, &mut cnf, &mut var_manager);
+        dpw.encode_ub_change(0..=4, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
         // step 3
         debug_assert_eq!(dpw.next_precision(), 1);
         dpw.set_precision(1).unwrap();
         let mut cnf = Cnf::new();
-        dpw.encode_ub(0..=4, &mut cnf, &mut var_manager);
+        dpw.encode_ub_change(0..=4, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
         // last check
         debug_assert_eq!(dpw.next_precision(), 1);
+    }
+
+    #[test]
+    fn incremental_precision_2() {
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![3], 8632);
+        lits.insert(lit![1], 1937);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![8]);
+
+        let mut n_inc_clauses = 0;
+        debug_assert_eq!(dpw.next_precision(), 8192);
+        dpw.set_precision(8192).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=1, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        n_inc_clauses += cnf.len();
+
+        println!("{:?}", cnf);
+
+        dpw.set_precision(1024).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=9, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+        n_inc_clauses += cnf.len();
+
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![3], 8632);
+        lits.insert(lit![1], 1937);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![8]);
+        dpw.set_precision(1024).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=9, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+
+        debug_assert_eq!(n_inc_clauses, cnf.len());
+    }
+
+    #[test]
+    fn incremental_precision_3() {
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![3], 8632);
+        lits.insert(lit![1], 1937);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![8]);
+
+        let mut n_inc_clauses = 0;
+        debug_assert_eq!(dpw.next_precision(), 8192);
+        dpw.set_precision(2048).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=1, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        n_inc_clauses += cnf.len();
+
+        println!("{:?}", cnf);
+
+        dpw.set_precision(1024).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=9, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+        n_inc_clauses += cnf.len();
+
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![3], 8632);
+        lits.insert(lit![1], 1937);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![8]);
+        dpw.set_precision(1024).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=9, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+
+        debug_assert_eq!(n_inc_clauses, cnf.len());
     }
 }

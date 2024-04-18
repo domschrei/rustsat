@@ -651,7 +651,7 @@ fn build_structure(
                 continue;
             }
             debug_assert_eq!(top_bucket.divisor(), 1);
-            if prec_div <= 1 {
+            if weight_queue.is_empty() {
                 // very last bottom bucket does not need bottom bucket
                 bottom_buckets.push(top_bucket.id);
                 bb_offset = top_bucket.offset;
@@ -1017,9 +1017,8 @@ mod tests {
         let mut cnf = Cnf::new();
         dpw.encode_ub_change(0..=1, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
-        n_inc_clauses += cnf.len();
-
         println!("{:?}", cnf);
+        n_inc_clauses += cnf.len();
 
         dpw.set_precision(1024).unwrap();
         let mut cnf = Cnf::new();
@@ -1056,9 +1055,8 @@ mod tests {
         let mut cnf = Cnf::new();
         dpw.encode_ub_change(0..=1, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
-        n_inc_clauses += cnf.len();
-
         println!("{:?}", cnf);
+        n_inc_clauses += cnf.len();
 
         dpw.set_precision(1024).unwrap();
         let mut cnf = Cnf::new();
@@ -1075,6 +1073,48 @@ mod tests {
         dpw.set_precision(1024).unwrap();
         let mut cnf = Cnf::new();
         dpw.encode_ub_change(0..=9, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+
+        debug_assert_eq!(n_inc_clauses, cnf.len());
+    }
+
+    #[test]
+    fn incremental_precision_4() {
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![0], 8);
+        lits.insert(lit![6], 16);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![7]);
+
+        let mut n_inc_clauses = 0;
+        debug_assert_eq!(dpw.next_precision(), 16);
+        dpw.set_precision(8).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=3, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+        n_inc_clauses += cnf.len();
+        println!("{:?}", dpw.enforce_ub(1));
+        println!("{:?}", dpw.enforce_ub(0));
+
+        dpw.set_precision(1).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=24, &mut cnf, &mut var_manager);
+        debug_assert!(cnf.is_empty());
+        println!("{:?}", cnf);
+        n_inc_clauses += cnf.len();
+        println!("{:?}", dpw.enforce_ub(1));
+        println!("{:?}", dpw.enforce_ub(0));
+
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![0], 8);
+        lits.insert(lit![6], 16);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![7]);
+        dpw.set_precision(1).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(0..=24, &mut cnf, &mut var_manager);
         debug_assert!(!cnf.is_empty());
         println!("{:?}", cnf);
 

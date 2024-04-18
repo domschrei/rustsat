@@ -490,6 +490,15 @@ pub mod encodings {
             ret
         }
 
+        /// Checks whether the encoding is already at the maximum precision
+        #[no_mangle]
+        pub unsafe extern "C" fn dpw_is_max_precision(dpw: *mut DynamicPolyWatchdog) -> bool {
+            let boxed = unsafe { Box::from_raw(dpw) };
+            let ret = boxed.is_max_precision();
+            Box::into_raw(boxed);
+            ret
+        }
+
         /// Frees the memory associated with a [`DynamicPolyWatchdog`]
         ///
         /// # Safety

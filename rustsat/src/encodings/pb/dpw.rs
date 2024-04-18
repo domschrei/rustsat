@@ -147,6 +147,11 @@ impl DynamicPolyWatchdog {
         let digits = utils::digits(*self.weight_queue.iter().next_back().unwrap().0, 2) as usize;
         1 << (digits - 1)
     }
+
+    /// Checks whether the encoding is already at the maximum precision
+    pub fn is_max_precision(&self) -> bool {
+        self.weight_queue.is_empty()
+    }
 }
 
 #[cfg_attr(feature = "internals", visibility::make(pub))]

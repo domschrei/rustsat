@@ -165,6 +165,11 @@ enum MaybeError dpw_enforce_ub(struct DynamicPolyWatchdog *dpw,
                                void *collector_data);
 
 /**
+ * Checks whether the encoding is already at the maximum precision
+ */
+bool dpw_is_max_precision(struct DynamicPolyWatchdog *dpw);
+
+/**
  * Creates a new [`DynamicPolyWatchdog`] cardinality encoding
  */
 struct DynamicPolyWatchdog *dpw_new(void);

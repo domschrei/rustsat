@@ -213,6 +213,9 @@ impl BoundUpper for DynamicPolyWatchdog {
     }
 
     fn enforce_ub(&self, ub: usize) -> Result<Vec<Lit>, Error> {
+        if self.weight_sum() <= ub && self.prec_div <= 1 {
+            return Ok(vec![]);
+        }
         match &self.structure {
             Some(structure) => {
                 if !self.weight_queue.is_empty()
@@ -228,9 +231,6 @@ impl BoundUpper for DynamicPolyWatchdog {
                 enforce_ub(structure, ub, &self.db)
             }
             None => {
-                if self.weight_sum() <= ub && self.prec_div <= 1 {
-                    return Ok(vec![]);
-                }
                 if self.in_lits.len() > 1 {
                     return Err(Error::NotEncoded);
                 }
@@ -1147,5 +1147,41 @@ mod tests {
         println!("{:?}", cnf);
 
         debug_assert_eq!(n_inc_clauses, cnf.len());
+    }
+
+    #[test]
+    fn incremental_precision_5() {
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![15], 69);
+        lits.insert(lit![21], 64);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(var![22]);
+
+        debug_assert_eq!(dpw.next_precision(), 64);
+        dpw.set_precision(64).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(1..=2, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+        let assumps = dpw.enforce_ub(1).unwrap();
+        debug_assert!(!assumps.is_empty());
+        println!("{:?}", assumps);
+
+        dpw.set_precision(1).unwrap();
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(133..=133, &mut cnf, &mut var_manager);
+        debug_assert!(cnf.is_empty());
+        println!("{:?}", cnf);
+        let assumps = dpw.enforce_ub(133).unwrap();
+        debug_assert!(assumps.is_empty());
+        println!("{:?}", assumps);
+
+        let mut cnf = Cnf::new();
+        dpw.encode_ub_change(69..=69, &mut cnf, &mut var_manager);
+        debug_assert!(!cnf.is_empty());
+        println!("{:?}", cnf);
+        let assumps = dpw.enforce_ub(69).unwrap();
+        debug_assert!(!assumps.is_empty());
+        println!("{:?}", assumps);
     }
 }

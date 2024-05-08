@@ -21,6 +21,7 @@ use std::{
 };
 
 use crate::{
+    clause,
     encodings::{
         atomics,
         card::dbtotalizer::{GeneralNode, LitData, Node, TotDb, UnitNode},
@@ -151,6 +152,59 @@ impl DynamicPolyWatchdog {
     /// Checks whether the encoding is already at the maximum precision
     pub fn is_max_precision(&self) -> bool {
         self.weight_queue.is_empty()
+    }
+
+    /// Given a range of output values to limit the encoding to, returns additional clauses that
+    /// "shrink" the encoding through hardening
+    ///
+    /// The output value range must be a range considering _all_ input literals, not only the
+    /// encoded ones.
+    ///
+    /// This is intended for, e.g., a MaxSAT solving application where a global lower bound is
+    /// derived and parts of the encoding can be hardened.
+    pub fn limit_range<Col, R>(&self, range: R, collector: &mut Col)
+    where
+        Col: CollectClauses,
+        R: RangeBounds<usize>,
+    {
+        let range = super::prepare_ub_range(self, range);
+        if let Some(structure) = &self.structure {
+            if self.is_max_precision() {
+                let output_weight = 1 << (structure.output_power());
+                let range =
+                    range.start / output_weight..(range.end + output_weight - 1) / output_weight;
+                let root = &self.db[structure.root()];
+                // positively harden lower bound
+                collector.extend(
+                    root.vals(..=range.start)
+                        .flat_map(|val| root.lit(val).map(|&olit| clause![olit])),
+                );
+                // negatively harden upper bound
+                collector.extend(
+                    root.vals(range.end..)
+                        .filter_map(|val| root.lit(val).map(|&olit| clause![!olit])),
+                );
+            } else {
+                let idx_offset = utils::digits(structure.prec_div, 2) - 1;
+                for (idx, &bottom) in structure.bottom_buckets.iter().rev().enumerate() {
+                    let div = 2usize.pow(idx as u32 + idx_offset);
+                    let range = range.start / div..(range.end + div - 1) / div;
+                    let top_con = self.db[bottom].left().unwrap();
+                    debug_assert_eq!(top_con.divisor(), 1);
+                    let top = &self.db[top_con.id];
+                    // positively harden lower bound
+                    collector.extend(
+                        top.vals(..=top_con.rev_map(range.start))
+                            .flat_map(|val| top.lit(val).map(|&olit| clause![olit])),
+                    );
+                    // negatively harden upper bound
+                    collector.extend(
+                        top.vals(top_con.rev_map_round_up(range.end)..)
+                            .filter_map(|val| top.lit(val).map(|&olit| clause![!olit])),
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -1183,5 +1237,37 @@ mod tests {
         let assumps = dpw.enforce_ub(69).unwrap();
         debug_assert!(!assumps.is_empty());
         println!("{:?}", assumps);
+    }
+
+    #[test]
+    fn reduce_range() {
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![0], 5);
+        lits.insert(lit![1], 3);
+        lits.insert(lit![2], 8);
+        lits.insert(lit![3], 7);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(Var::new(4));
+        let mut cnf = Cnf::new();
+        dpw.encode_ub(.., &mut cnf, &mut var_manager);
+        let mut hardened = Cnf::new();
+        dpw.limit_range(8..33, &mut hardened);
+        assert_eq!(hardened.len(), 2);
+    }
+
+    #[test]
+    fn reduce_tot() {
+        let mut lits = RsHashMap::default();
+        lits.insert(lit![0], 1);
+        lits.insert(lit![1], 1);
+        lits.insert(lit![2], 1);
+        lits.insert(lit![3], 1);
+        let mut dpw = DynamicPolyWatchdog::from(lits);
+        let mut var_manager = BasicVarManager::from_next_free(Var::new(4));
+        let mut cnf = Cnf::new();
+        dpw.encode_ub(.., &mut cnf, &mut var_manager);
+        let mut hardened = Cnf::new();
+        dpw.limit_range(1..4, &mut hardened);
+        assert_eq!(hardened.len(), 2);
     }
 }

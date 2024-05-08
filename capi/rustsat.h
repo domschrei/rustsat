@@ -170,8 +170,45 @@ enum MaybeError dpw_enforce_ub(struct DynamicPolyWatchdog *dpw,
 
 /**
  * Checks whether the encoding is already at the maximum precision
+ *
+ * # Safety
+ *
+ * `dpw` must be a return value of [`dpw_new`] and cannot be used
+ * afterwards again.
  */
 bool dpw_is_max_precision(struct DynamicPolyWatchdog *dpw);
+
+/**
+ * Given a range of output values to limit the encoding to, returns additional clauses that
+ * "shrink" the encoding through hardening
+ *
+ * The output value range must be a range considering _all_ input literals, not only the
+ * encoded ones.
+ *
+ * This is intended for, e.g., a MaxSAT solving application where a global lower bound is
+ * derived and parts of the encoding can be hardened.
+ *
+ * The min and max bounds are inclusive. After a call to [`dpw_limit_range`] with
+ * `min_value=2` and `max_value=4`, the encoding is valid for the value range `2 <= range
+ * <= 4`.
+ *
+ * To not specify a bound, pass `0` for the lower bound or `SIZE_MAX` for the upper bound.
+ *
+ * Clauses are returned via the `collector`. The `collector` function should expect
+ * clauses to be passed similarly to `ipasir_add`, as a 0-terminated sequence of literals
+ * where the literals are passed as the first argument and the `collector_data` as a
+ * second.
+ *
+ * # Safety
+ *
+ * `dpw` must be a return value of [`dpw_new`] and cannot be used
+ * afterwards again.
+ */
+void dpw_limit_range(struct DynamicPolyWatchdog *dpw,
+                     size_t min_value,
+                     size_t max_value,
+                     CClauseCollector collector,
+                     void *collector_data);
 
 /**
  * Creates a new [`DynamicPolyWatchdog`] cardinality encoding
@@ -185,6 +222,11 @@ struct DynamicPolyWatchdog *dpw_new(void);
  * from the last _encoded_ precision. The divisor value will always be a power of two so that
  * calling `set_precision` and then encoding will produce the smalles non-empty next segment
  * of the encoding.
+ *
+ * # Safety
+ *
+ * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has
+ * not yet been called on.
  */
 size_t dpw_next_precision(struct DynamicPolyWatchdog *dpw);
 

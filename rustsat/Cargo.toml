@@ -1,9 +1,9 @@
 [package]
 name = "rustsat"
 version = "0.5.0"
-edition = "2021"
+edition.workspace = true
 authors = ["Christoph Jabs <christoph.jabs@helsinki.fi>"]
-license = "MIT"
+license.workspace = true
 description = "This library aims to provide implementations of elements commonly used in the development on software in the area of satisfiability solving. The focus of the library is to provide as much ease of use without giving up on performance."
 keywords = ["sat", "satisfiability", "encodings"]
 repository = "https://github.com/chrjabs/rustsat"
@@ -13,18 +13,16 @@ rust-version = "1.66.1"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-nom = "7.1.1"
-bzip2 = { version = "0.4.4", optional = true }
-flate2 = { version = "1.0.25", optional = true, features = [
-  "zlib-ng",
-], default-features = false }
-xz2 = { version = "0.1.7", optional = true }
-rustc-hash = { version = "1.1.0", optional = true }
-cpu-time = "1.0.0"
-rand = { version = "0.8.5", optional = true }
-visibility = { version = "0.1.0" }
-anyhow = { version = "1.0.80" }
-thiserror = { version = "1.0.50" }
+anyhow.workspace = true
+cpu-time.workspace = true
+nom.workspace = true
+thiserror.workspace = true
+visibility.workspace = true
+bzip2 = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+rustc-hash = { workspace = true, optional = true }
+xz2 = { workspace = true, optional = true }
 
 [dev-dependencies]
 rustsat-minisat = { path = "../minisat" }
@@ -48,3 +46,6 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [[example]]
 name = "profiling"
+
+[[example]]
+name = "print-lits"

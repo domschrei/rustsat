@@ -1,6 +1,5 @@
 [workspace]
 members = [
-  "rustsat",
   "tools",
   "cadical",
   "kissat",
@@ -38,9 +37,60 @@ thiserror = "1.0.60"
 rand = "0.8.5"
 rand_chacha = "0.3.1"
 rustc-hash = "1.1.0"
+rustsat = { version = "0.5.0", path = "./", default-features = false }
 signal-hook = "0.3.17"
 visibility = "0.1.0"
 xz2 = "0.1.7"
+
+[package]
+name = "rustsat"
+version = "0.5.0"
+edition.workspace = true
+authors = ["Christoph Jabs <christoph.jabs@helsinki.fi>"]
+license.workspace = true
+description = "This library aims to provide implementations of elements commonly used in the development on software in the area of satisfiability solving. The focus of the library is to provide as much ease of use without giving up on performance."
+keywords = ["sat", "satisfiability", "encodings"]
+repository = "https://github.com/chrjabs/rustsat"
+readme = "README.md"
+rust-version = "1.66.1"
+
+[dependencies]
+anyhow.workspace = true
+cpu-time.workspace = true
+nom.workspace = true
+thiserror.workspace = true
+visibility.workspace = true
+bzip2 = { workspace = true, optional = true }
+flate2 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+rustc-hash = { workspace = true, optional = true }
+xz2 = { workspace = true, optional = true }
+
+[dev-dependencies]
+rustsat-minisat = { path = "./minisat" }
+rustsat-tools = { path = "./tools" }
+
+[features]
+default = ["optimization", "fxhash"]
+internals = []
+fxhash = ["dep:rustc-hash"]
+optimization = []
+multiopt = ["optimization"]
+compression = ["dep:bzip2", "dep:flate2", "dep:xz2"]
+rand = ["dep:rand"]
+bench = []
+ipasir-display = []
+all = ["multiopt", "compression", "rand", "fxhash"]
+
+[package.metadata.docs.rs]
+features = ["all"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[example]]
+name = "profiling"
+
+[[example]]
+name = "print-lits"
 
 [profile.profiling]
 inherits = "release"

@@ -173,8 +173,8 @@ enum MaybeError dpw_enforce_ub(struct DynamicPolyWatchdog *dpw,
  *
  * # Safety
  *
- * `dpw` must be a return value of [`dpw_new`] and cannot be used
- * afterwards again.
+ * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has
+ * not yet been called on.
  */
 bool dpw_is_max_precision(struct DynamicPolyWatchdog *dpw);
 
@@ -201,8 +201,8 @@ bool dpw_is_max_precision(struct DynamicPolyWatchdog *dpw);
  *
  * # Safety
  *
- * `dpw` must be a return value of [`dpw_new`] and cannot be used
- * afterwards again.
+ * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has
+ * not yet been called on.
  */
 void dpw_limit_range(struct DynamicPolyWatchdog *dpw,
                      size_t min_value,

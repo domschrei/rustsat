@@ -503,8 +503,8 @@ pub mod encodings {
         ///
         /// # Safety
         ///
-        /// `dpw` must be a return value of [`dpw_new`] and cannot be used
-        /// afterwards again.
+        /// `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has
+        /// not yet been called on.
         #[no_mangle]
         pub unsafe extern "C" fn dpw_is_max_precision(dpw: *mut DynamicPolyWatchdog) -> bool {
             let boxed = unsafe { Box::from_raw(dpw) };
@@ -535,8 +535,8 @@ pub mod encodings {
         ///
         /// # Safety
         ///
-        /// `dpw` must be a return value of [`dpw_new`] and cannot be used
-        /// afterwards again.
+        /// `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has
+        /// not yet been called on.
         #[no_mangle]
         pub unsafe extern "C" fn dpw_limit_range(
             dpw: *mut DynamicPolyWatchdog,

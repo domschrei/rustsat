@@ -653,6 +653,64 @@ impl ops::Neg for TernaryVal {
     }
 }
 
+impl ops::BitXor<bool> for TernaryVal {
+    type Output = TernaryVal;
+
+    #[inline]
+    fn bitxor(self, rhs: bool) -> Self::Output {
+        if rhs {
+            !self
+        } else {
+            self
+        }
+    }
+}
+
+impl ops::BitXorAssign<bool> for TernaryVal {
+    fn bitxor_assign(&mut self, rhs: bool) {
+        if rhs {
+            *self = !*self;
+        }
+    }
+}
+
+impl ops::BitAnd for TernaryVal {
+    type Output = TernaryVal;
+
+    #[inline]
+    fn bitand(self, rhs: TernaryVal) -> Self::Output {
+        match (self, rhs) {
+            (TernaryVal::True, TernaryVal::True) => TernaryVal::True,
+            (TernaryVal::False, _) | (_, TernaryVal::False) => TernaryVal::False,
+            (TernaryVal::DontCare, _) | (_, TernaryVal::DontCare) => TernaryVal::DontCare,
+        }
+    }
+}
+
+impl ops::BitAndAssign for TernaryVal {
+    fn bitand_assign(&mut self, rhs: Self) {
+        *self = *self & rhs;
+    }
+}
+
+impl ops::BitOr for TernaryVal {
+    type Output = TernaryVal;
+
+    fn bitor(self, rhs: TernaryVal) -> Self::Output {
+        match (self, rhs) {
+            (TernaryVal::False, TernaryVal::False) => TernaryVal::False,
+            (TernaryVal::True, _) | (_, TernaryVal::True) => TernaryVal::True,
+            (TernaryVal::DontCare, _) | (_, TernaryVal::DontCare) => TernaryVal::DontCare,
+        }
+    }
+}
+
+impl ops::BitOrAssign for TernaryVal {
+    fn bitor_assign(&mut self, rhs: Self) {
+        *self = *self | rhs;
+    }
+}
+
 /// Possible errors in parsing a SAT solver value (`v`) line
 #[derive(Error, Debug)]
 pub enum InvalidVLine {
@@ -689,15 +747,7 @@ impl Assignment {
     /// Same as [`Assignment::var_value`], but for literals.
     #[must_use]
     pub fn lit_value(&self, lit: Lit) -> TernaryVal {
-        if lit.is_neg() {
-            match self.var_value(lit.var()) {
-                TernaryVal::DontCare => TernaryVal::DontCare,
-                TernaryVal::True => TernaryVal::False,
-                TernaryVal::False => TernaryVal::True,
-            }
-        } else {
-            self.var_value(lit.var())
-        }
+        self.var_value(lit.var()) ^ lit.is_neg()
     }
 
     /// Replaces unassigned variables in the assignment with a default value
@@ -724,11 +774,7 @@ impl Assignment {
 
     /// Assigns a literal to true
     pub fn assign_lit(&mut self, lit: Lit) {
-        let val = if lit.is_pos() {
-            TernaryVal::True
-        } else {
-            TernaryVal::False
-        };
+        let val = TernaryVal::True ^ lit.is_neg();
         self.assign_var(lit.var(), val);
     }
 

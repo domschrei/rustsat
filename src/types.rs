@@ -45,7 +45,7 @@ pub type RsHasher = std::collections::hash_map::DefaultHasher;
 #[derive(Hash, Eq, PartialEq, PartialOrd, Clone, Copy, Ord)]
 #[repr(transparent)]
 pub struct Var {
-    idx: u32,
+    idx: nonmax::NonMaxU32,
 }
 
 impl Var {
@@ -61,7 +61,7 @@ impl Var {
     #[must_use]
     pub fn new(idx: u32) -> Var {
         assert!(idx < Var::MAX_IDX, "variable index too high");
-        Var { idx }
+        Var::new_unchecked(idx)
     }
 
     /// Creates a new variables with a given index.
@@ -74,7 +74,7 @@ impl Var {
         if idx > Var::MAX_IDX {
             return Err(TypeError::IdxTooHigh(idx, Var::MAX_IDX));
         }
-        Ok(Var { idx })
+        Ok(Var::new_unchecked(idx))
     }
 
     /// Creates a new variables with a given index.
@@ -84,7 +84,9 @@ impl Var {
     #[inline]
     #[must_use]
     pub fn new_unchecked(idx: u32) -> Var {
-        Var { idx }
+        Var {
+            idx: unsafe { nonmax::NonMaxU32::new_unchecked(idx) },
+        }
     }
 
     /// Creates a literal that is not negated.
@@ -100,7 +102,7 @@ impl Var {
     #[inline]
     #[must_use]
     pub fn pos_lit(self) -> Lit {
-        Lit::positive_unchecked(self.idx)
+        Lit::positive_unchecked(self.idx32())
     }
 
     /// Creates a negated literal.
@@ -116,7 +118,23 @@ impl Var {
     #[inline]
     #[must_use]
     pub fn neg_lit(self) -> Lit {
-        Lit::negative_unchecked(self.idx)
+        Lit::negative_unchecked(self.idx32())
+    }
+
+    /// Creates a literal with a given negation from the variable
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use rustsat::types::{Var,Lit};
+    /// let var = Var::new(5);
+    /// let lit = Lit::positive(5);
+    /// assert_eq!(lit, var.lit(false));
+    /// ```
+    #[inline]
+    #[must_use]
+    pub fn lit(self, negated: bool) -> Lit {
+        Lit::new_unchecked(self.idx32(), negated)
     }
 
     /// Returns the index of the variable. This is a `usize` to enable easier
@@ -134,7 +152,7 @@ impl Var {
     #[inline]
     #[must_use]
     pub fn idx(self) -> usize {
-        self.idx as usize
+        self.idx.get() as usize
     }
 
     /// Returns the 32 bit index of the variable.
@@ -149,7 +167,7 @@ impl Var {
     #[inline]
     #[must_use]
     pub fn idx32(self) -> u32 {
-        self.idx
+        self.idx.get()
     }
 
     /// Converts the variable to an integer as accepted by
@@ -191,15 +209,13 @@ impl ops::Add<u32> for Var {
     type Output = Var;
 
     fn add(self, rhs: u32) -> Self::Output {
-        Var {
-            idx: self.idx + rhs,
-        }
+        Var::new(self.idx.get() + rhs)
     }
 }
 
 impl ops::AddAssign<u32> for Var {
     fn add_assign(&mut self, rhs: u32) {
-        self.idx += rhs;
+        *self = *self + rhs;
     }
 }
 
@@ -208,15 +224,13 @@ impl ops::Sub<u32> for Var {
     type Output = Var;
 
     fn sub(self, rhs: u32) -> Self::Output {
-        Var {
-            idx: self.idx - rhs,
-        }
+        Var::new(self.idx.get() - rhs)
     }
 }
 
 impl ops::SubAssign<u32> for Var {
     fn sub_assign(&mut self, rhs: u32) {
-        self.idx -= rhs;
+        *self = *self - rhs;
     }
 }
 
@@ -234,7 +248,7 @@ impl fmt::Display for Var {
 /// Variables can be printed with the [`Debug`](std::fmt::Debug) trait
 impl fmt::Debug for Var {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "x{}", self.idx)
+        write!(f, "x{}", self.idx())
     }
 }
 
@@ -575,7 +589,7 @@ macro_rules! ipasir_lit {
 }
 
 /// Ternary value assigned to a literal or variable, including possible "don't care"
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum TernaryVal {
     /// Positive assignment.
@@ -583,6 +597,7 @@ pub enum TernaryVal {
     /// Negative assignment.
     False,
     /// Formula is satisfied, no matter the assignment.
+    #[default]
     DontCare,
 }
 

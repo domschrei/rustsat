@@ -193,6 +193,7 @@ fn main() {
     // Generate Rust FFI bindings
     let bindings = bindgen::Builder::default()
         .clang_arg("-Icppsrc")
+        .clang_arg(format!("-I{out_dir}/cadical/src"))
         .header(format!("{out_dir}/cadical/src/ccadical.h"))
         .allowlist_file(format!("{out_dir}/cadical/src/ccadical.h"))
         .allowlist_file("cppsrc/ccadical_extension.h")
@@ -209,6 +210,13 @@ fn main() {
         .blocklist_function("ccadical_simplify");
     let bindings = if version.has_flip() {
         bindings.clang_arg("-DFLIP")
+    } else {
+        bindings
+    };
+    let bindings = if version.has_ipasir_up() {
+        bindings
+            .header("cppsrc/cipasirup.h")
+            .allowlist_file("cppsrc/cipasirup.h")
     } else {
         bindings
     };
@@ -282,11 +290,12 @@ fn build(repo: &str, branch: &str, version: Version) {
     }
     if version.has_ipasir_up() {
         cadical_build.define("IPASIRUP", None);
+        cadical_build.file("cppsrc/cipasirup.cpp");
     }
 
     // Generate build header
     let mut build_header = File::create(cadical_dir.join("src").join("build.hpp"))
-        .expect("Could not create kissat CaDiCaL header");
+        .expect("Could not create CaDiCaL build header");
     let mut cadical_version =
         fs::read_to_string(cadical_dir.join("VERSION")).expect("Cannot read CaDiCaL version");
     cadical_version.retain(|c| c != '\n');

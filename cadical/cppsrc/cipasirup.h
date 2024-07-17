@@ -82,7 +82,9 @@ typedef struct {
 //   ensure (VALID)
 //
 void ccadical_connect_external_propagator(CCaDiCaL *, void *,
-                                          CCaDiCaLExternalPropagatorCallbacks);
+                                          CCaDiCaLExternalPropagatorCallbacks,
+                                          int lazy);
+// Returns the data pointer of the propagator
 void ccadical_disconnect_external_propagator(CCaDiCaL *);
 
 // Mark as 'observed' those variables that are relevant to the external

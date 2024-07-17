@@ -1,10 +1,7 @@
 // CaDiCaL C API Extension For External Propagators (Christoph Jabs)
 
 #include "cipasirup.h"
-
 #include <cassert>
-
-#include "cadical.hpp"
 
 namespace CaDiCaL {
 class CExternalPropagator : public ExternalPropagator {
@@ -60,3 +57,33 @@ public:
   }
 };
 } // namespace CaDiCaL
+
+extern "C" {
+
+void ccadical_connect_external_propagator(
+    CCaDiCaL *wrapper, void *data,
+    CCaDiCaLExternalPropagatorCallbacks callbacks, int lazy) {
+  CExternalPropagator *prop = new CExternalPropagator(data, callbacks, lazy);
+  ((Wrapper *)wrapper)->solver->connect_external_propagator(prop);
+}
+
+void ccadical_disconnect_external_propagator(CCaDiCaL *wrapper) {
+  ((Wrapper *)wrapper)->solver->disconnect_external_propagator();
+}
+
+void ccadical_add_observed_var(CCaDiCaL *wrapper, int var) {
+  ((Wrapper *)wrapper)->solver->add_observed_var(var);
+}
+
+void ccadical_remove_observed_var(CCaDiCaL *wrapper, int var) {
+  ((Wrapper *)wrapper)->solver->remove_observed_var(var);
+}
+
+void ccadical_reset_observed_vars(CCaDiCaL *wrapper) {
+  ((Wrapper *)wrapper)->solver->reset_observed_vars();
+}
+
+int ccadical_is_decision(CCaDiCaL *wrapper, int lit) {
+  return ((Wrapper *)wrapper)->solver->is_decision(lit);
+}
+}

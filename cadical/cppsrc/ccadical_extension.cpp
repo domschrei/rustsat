@@ -114,3 +114,7 @@ int ccadical_propcheck(CCaDiCaL *wrapper, const int *assumps,
   }
 }
 }
+
+#ifdef IPASIRUP
+#include "cipasirup.cpp"
+#endif

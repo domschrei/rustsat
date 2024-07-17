@@ -37,7 +37,27 @@ use thiserror::Error;
 
 mod ffi;
 
+// >= 1.6.0
+#[cfg(all(
+    not(feature = "v1-5-0"),
+    not(feature = "v1-5-1"),
+    not(feature = "v1-5-2"),
+    not(feature = "v1-5-3"),
+    not(feature = "v1-5-4"),
+    not(feature = "v1-5-5"),
+    not(feature = "v1-5-6"),
+))]
 mod ipasirup;
+// >= 1.6.0
+#[cfg(all(
+    not(feature = "v1-5-0"),
+    not(feature = "v1-5-1"),
+    not(feature = "v1-5-2"),
+    not(feature = "v1-5-3"),
+    not(feature = "v1-5-4"),
+    not(feature = "v1-5-5"),
+    not(feature = "v1-5-6"),
+))]
 pub use ipasirup::ExternalPropagate;
 
 macro_rules! handle_oom {

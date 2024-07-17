@@ -290,7 +290,6 @@ fn build(repo: &str, branch: &str, version: Version) {
     }
     if version.has_ipasir_up() {
         cadical_build.define("IPASIRUP", None);
-        cadical_build.file("cppsrc/cipasirup.cpp");
     }
 
     // Generate build header

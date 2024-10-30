@@ -3,7 +3,7 @@
 use std::ffi::{c_int, c_void};
 
 use rustsat::{
-    encodings::pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog},
+    encodings::pb::{BoundUpper, BoundUpperIncremental, DynamicPolyWatchdog, EncodeIncremental},
     types::Lit,
 };
 
@@ -59,6 +59,11 @@ pub unsafe extern "C" fn dpw_add(
 /// # Safety
 ///
 /// `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
+///
+/// # Panics
+///
+/// - If `min_bound <= max_bound`.
+/// - If the encoding ran out of memory
 #[no_mangle]
 pub unsafe extern "C" fn dpw_encode_ub(
     dpw: *mut DynamicPolyWatchdog,
@@ -183,6 +188,11 @@ pub unsafe extern "C" fn dpw_is_max_precision(dpw: *mut DynamicPolyWatchdog) -> 
 /// # Safety
 ///
 /// `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
+///
+/// # Panics
+///
+/// - If `min_bound <= max_bound`.
+/// - If the encoding ran out of memory
 #[no_mangle]
 pub unsafe extern "C" fn dpw_limit_range(
     dpw: *mut DynamicPolyWatchdog,
@@ -195,6 +205,20 @@ pub unsafe extern "C" fn dpw_limit_range(
     let mut collector = ClauseCollector::new(collector, collector_data);
     unsafe { (*dpw).limit_range(min_value..=max_value, &mut collector) }
         .expect("clause collector returned out of memory");
+}
+
+/// Reserves all auxilliary variables that the encoding might need
+///
+/// All calls to [`dpw_encode_ub`] following a call to this function are guaranteed to not increase
+/// the value of `n_vars_used`. This does _not_ hold if [`dpw_add`] is called in between
+///
+/// # Safety
+///
+/// `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
+#[no_mangle]
+pub unsafe extern "C" fn dpw_reserve(dpw: *mut DynamicPolyWatchdog, n_vars_used: &mut u32) {
+    let mut var_manager = VarManager::new(n_vars_used);
+    unsafe { (*dpw).reserve(&mut var_manager) };
 }
 
 /// Frees the memory associated with a [`DynamicPolyWatchdog`]
@@ -253,6 +277,40 @@ mod tests {
                 dpw_drop(dpw);
                 assert(n_used == 13);
                 assert(n_clauses == 13);
+                return 0;
+            }
+        })
+        .success();
+    }
+
+    #[test]
+    fn reserve() {
+        (assert_c! {
+            #include <assert.h>
+            #include "rustsat.h"
+
+            void clause_counter(int lit, void *data) {
+                if (!lit) {
+                    int *cnt = (int *)data;
+                    (*cnt)++;
+                }
+            }
+
+            int main() {
+                DynamicPolyWatchdog *dpw = dpw_new();
+                assert(dpw_add(dpw, 1, 1) == Ok);
+                assert(dpw_add(dpw, 2, 1) == Ok);
+                assert(dpw_add(dpw, 3, 2) == Ok);
+                assert(dpw_add(dpw, 4, 2) == Ok);
+                uint32_t n_used = 4;
+                uint32_t n_clauses = 0;
+                dpw_reserve(dpw, &n_used);
+                assert(n_used == 15);
+                dpw_encode_ub(dpw, 2, 6, &n_used, &clause_counter, &n_clauses);
+                assert(n_used == 15);
+                dpw_encode_ub(dpw, 0, 4, &n_used, &clause_counter, &n_clauses);
+                assert(n_used == 15);
+                dpw_drop(dpw);
                 return 0;
             }
         })

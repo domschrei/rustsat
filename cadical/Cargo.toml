@@ -1,6 +1,6 @@
 [package]
 name = "rustsat-cadical"
-version = "0.3.1"
+version = "0.4.1"
 edition.workspace = true
 authors = ["Christoph Jabs <christoph.jabs@helsinki.fi>"]
 license.workspace = true
@@ -40,6 +40,7 @@ v1-9-3 = []
 v1-9-4 = []
 v1-9-5 = []
 v2-0-0 = []
+v2-1-0 = []
 
 [dependencies]
 anyhow.workspace = true

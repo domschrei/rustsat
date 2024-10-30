@@ -35,13 +35,16 @@ enum Version {
     V193,
     V194,
     V195,
-    #[default]
     V200,
+    #[default]
+    V210,
 }
 
 impl Version {
     fn determine() -> Self {
-        if cfg!(feature = "v2-0-0") {
+        if cfg!(feature = "v2-1-0") {
+            Version::V210
+        } else if cfg!(feature = "v2-0-0") {
             Version::V200
         } else if cfg!(feature = "v1-9-5") {
             Version::V195
@@ -115,6 +118,7 @@ impl Version {
             Version::V194 => "refs/tags/rel-1.9.4",
             Version::V195 => "refs/tags/rel-1.9.5",
             Version::V200 => "refs/tags/rel-2.0.0",
+            Version::V210 => "refs/tags/rel-2.1.0",
         }
     }
 
@@ -132,6 +136,7 @@ impl Version {
             V190 | V191 => "v190.patch",
             V192 | V193 | V194 | V195 => "v192.patch",
             V200 => "v200.patch",
+            V210 => "v210.patch",
         }
     }
 
@@ -153,15 +158,19 @@ impl Version {
 }
 
 fn main() {
+    let out_dir = env::var("OUT_DIR").unwrap();
+
+    let version = Version::determine();
+
     if std::env::var("DOCS_RS").is_ok() {
         // don't build c++ library on docs.rs due to network restrictions
+        // instead, only generate bindings from included header file
+        generate_bindings("cppsrc/dummy-ccadical.h", version, &out_dir);
         return;
     }
 
     #[cfg(all(feature = "quiet", feature = "logging"))]
     compile_error!("cannot combine cadical features quiet and logging");
-
-    let version = Version::determine();
 
     // Build C++ library
     build(
@@ -169,8 +178,6 @@ fn main() {
         "master",
         version,
     );
-
-    let out_dir = env::var("OUT_DIR").unwrap();
 
     // Built solver is in out_dir
     println!("cargo:rustc-link-search={out_dir}");
@@ -186,15 +193,21 @@ fn main() {
 
     for ext in ["h", "cpp"] {
         for file in glob(&format!("cppsrc/*.{ext}")).unwrap() {
-            println!("cargo::rerun-if-changed={}", file.unwrap().display());
+            println!("cargo:rerun-if-changed={}", file.unwrap().display());
         }
     }
 
-    // Generate Rust FFI bindings
+    let cadical_dir = get_cadical_dir(None);
+
+    generate_bindings(&format!("{cadical_dir}/src/ccadical.h"), version, &out_dir);
+}
+
+/// Generates Rust FFI bindings
+fn generate_bindings(header_path: &str, version: Version, out_dir: &str) {
     let bindings = bindgen::Builder::default()
         .clang_arg("-Icppsrc")
-        .header(format!("{out_dir}/cadical/src/ccadical.h"))
-        .allowlist_file(format!("{out_dir}/cadical/src/ccadical.h"))
+        .header(header_path)
+        .allowlist_file(header_path)
         .allowlist_file("cppsrc/ccadical_extension.h")
         .blocklist_item("FILE")
         .blocklist_function("ccadical_add")
@@ -220,21 +233,27 @@ fn main() {
         .expect("Could not write ffi bindings");
 }
 
-fn build(repo: &str, branch: &str, version: Version) {
-    let out_dir = env::var("OUT_DIR").unwrap();
-    let cadical_dir_str = {
+fn get_cadical_dir(remote: Option<(&str, &str, Version)>) -> String {
+    std::env::var("CADICAL_SRC_DIR").unwrap_or_else(|_| {
+        let out_dir = env::var("OUT_DIR").unwrap();
         let mut tmp = out_dir.clone();
         tmp.push_str("/cadical");
+        if let Some((repo, branch, version)) = remote {
+            update_repo(
+                Path::new(&tmp),
+                repo,
+                branch,
+                version.reference(),
+                Path::new("patches").join(version.patch()),
+            );
+        }
         tmp
-    };
-    let cadical_dir = { Path::new(&cadical_dir_str) };
-    update_repo(
-        cadical_dir,
-        repo,
-        branch,
-        version.reference(),
-        Path::new("patches").join(version.patch()),
-    );
+    })
+}
+
+fn build(repo: &str, branch: &str, version: Version) {
+    let cadical_dir_str = get_cadical_dir(Some((repo, branch, version)));
+    let cadical_dir = Path::new(&cadical_dir_str);
     // We specify the build manually here instead of calling make for better portability
     let src_files = glob(&format!("{cadical_dir_str}/src/*.cpp"))
         .unwrap()
@@ -284,9 +303,12 @@ fn build(repo: &str, branch: &str, version: Version) {
         cadical_build.define("IPASIRUP", None);
     }
 
+    let out_dir = std::env::var("OUT_DIR").unwrap();
+    let out_dir = Path::new(&out_dir);
+
     // Generate build header
-    let mut build_header = File::create(cadical_dir.join("src").join("build.hpp"))
-        .expect("Could not create kissat CaDiCaL header");
+    let mut build_header =
+        File::create(out_dir.join("build.hpp")).expect("Could not create CaDiCaL header");
     let mut cadical_version =
         fs::read_to_string(cadical_dir.join("VERSION")).expect("Cannot read CaDiCaL version");
     cadical_version.retain(|c| c != '\n');
@@ -298,6 +320,7 @@ fn build(repo: &str, branch: &str, version: Version) {
             ).expect("Failed to write CaDiCaL build.hpp");
     // Build CaDiCaL
     cadical_build
+        .include(out_dir)
         .include(cadical_dir.join("src"))
         .include("cppsrc")
         .warnings(false)
@@ -305,9 +328,7 @@ fn build(repo: &str, branch: &str, version: Version) {
         .compile("cadical");
 }
 
-/// Returns true if there were changes, false if not
-fn update_repo(repo_path: &Path, url: &str, branch: &str, reference: &str, patch: PathBuf) -> bool {
-    let mut changed = false;
+fn update_repo(repo_path: &Path, url: &str, branch: &str, reference: &str, patch: PathBuf) {
     let repo = if let Ok(repo) = git2::Repository::open(repo_path) {
         if repo.find_reference(reference).is_err() {
             // Fetch repo
@@ -318,7 +339,6 @@ fn update_repo(repo_path: &Path, url: &str, branch: &str, reference: &str, patch
                 panic!("Could not fetch \"origin/{branch}\" for git repo {repo_path:?}: {e}")
             });
             drop(remote);
-            changed = true;
         }
         repo
     } else {
@@ -331,7 +351,6 @@ fn update_repo(repo_path: &Path, url: &str, branch: &str, reference: &str, patch
                 )
             });
         };
-        changed = true;
         git2::Repository::clone(url, repo_path)
             .unwrap_or_else(|e| panic!("Could not clone repository {url}: {e}"))
     };
@@ -350,11 +369,16 @@ fn update_repo(repo_path: &Path, url: &str, branch: &str, reference: &str, patch
 
     apply_patch(&repo, patch);
 
-    changed
+    // Allow for manually applying patches
+    if let Ok(patches) = std::env::var("CADICAL_PATCHES") {
+        for patch in patches.split(':') {
+            apply_patch(&repo, patch);
+        }
+    }
 }
 
 /// Applies a patch to the repo
-fn apply_patch(repo: &Repository, patch: PathBuf) {
+fn apply_patch<P: AsRef<Path>>(repo: &Repository, patch: P) {
     let mut f = File::open(patch).unwrap();
     let mut buffer = Vec::new();
     f.read_to_end(&mut buffer).unwrap();

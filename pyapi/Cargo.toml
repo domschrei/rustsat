@@ -1,6 +1,6 @@
 [package]
 name = "rustsat-pyapi"
-version = "0.5.1"
+version = "0.6.1"
 edition.workspace = true
 authors = ["Christoph Jabs <christoph.jabs@helsinki.fi>"]
 license.workspace = true
@@ -15,7 +15,7 @@ build = "build.rs"
 
 [dependencies]
 rustsat.workspace = true
-pyo3 = { version = "0.22.2", features = [
+pyo3 = { version = "0.22.5", features = [
   "extension-module",
   "abi3",
   "abi3-py37",

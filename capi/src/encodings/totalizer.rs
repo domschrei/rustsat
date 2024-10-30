@@ -3,7 +3,7 @@
 use std::ffi::{c_int, c_void};
 
 use rustsat::{
-    encodings::card::{BoundUpper, BoundUpperIncremental, DbTotalizer},
+    encodings::card::{BoundUpper, BoundUpperIncremental, DbTotalizer, EncodeIncremental},
     types::Lit,
 };
 
@@ -44,8 +44,12 @@ pub unsafe extern "C" fn tot_add(tot: *mut DbTotalizer, lit: c_int) -> MaybeErro
 /// The min and max bounds are inclusive. After a call to [`tot_encode_ub`] with `min_bound=2` and
 /// `max_bound=4` bound including `<= 2` and `<= 4` can be enforced.
 ///
-/// A call to `var_manager` must yield a new variable. The encoding will be returned via the given
-/// callback function as 0-terminated clauses (in the same way as IPASIR's `add`).
+/// Clauses are returned via the `collector`. The `collector` function should expect clauses to be
+/// passed similarly to `ipasir_add`, as a 0-terminated sequence of literals where the literals are
+/// passed as the first argument and the `collector_data` as a second.
+///
+/// `n_vars_used` must be the number of variables already used and will be incremented by the
+/// number of variables used up in the encoding.
 ///
 /// # Safety
 ///
@@ -53,7 +57,8 @@ pub unsafe extern "C" fn tot_add(tot: *mut DbTotalizer, lit: c_int) -> MaybeErro
 ///
 /// # Panics
 ///
-/// If `min_bound <= max_bound`.
+/// - If `min_bound <= max_bound`.
+/// - If the encoding ran out of memory
 #[no_mangle]
 pub unsafe extern "C" fn tot_encode_ub(
     tot: *mut DbTotalizer,
@@ -91,6 +96,20 @@ pub unsafe extern "C" fn tot_enforce_ub(
         }
         Err(err) => err.into(),
     }
+}
+
+/// Reserves all auxilliary variables that the encoding might need
+///
+/// All calls to [`tot_encode_ub`] following a call to this function are guaranteed to not increase
+/// the value of `n_vars_used`. This does _not_ hold if [`tot_add`] is called in between
+///
+/// # Safety
+///
+/// `tot` must be a return value of [`tot_new`] that [`tot_drop`] has not yet been called on.
+#[no_mangle]
+pub unsafe extern "C" fn tot_reserve(tot: *mut DbTotalizer, n_vars_used: &mut u32) {
+    let mut var_manager = VarManager::new(n_vars_used);
+    unsafe { (*tot).reserve(&mut var_manager) };
 }
 
 /// Frees the memory associated with a [`DbTotalizer`]
@@ -139,16 +158,50 @@ mod tests {
 
             int main() {
                 DbTotalizer *tot = tot_new();
-                tot_add(tot, 1);
-                tot_add(tot, 2);
-                tot_add(tot, 3);
-                tot_add(tot, 4);
+                assert(tot_add(tot, 1) == Ok);
+                assert(tot_add(tot, 2) == Ok);
+                assert(tot_add(tot, 3) == Ok);
+                assert(tot_add(tot, 4) == Ok);
                 uint32_t n_used = 4;
                 uint32_t n_clauses = 0;
                 tot_encode_ub(tot, 0, 4, &n_used, &clause_counter, &n_clauses);
                 tot_drop(tot);
                 assert(n_used == 12);
                 assert(n_clauses == 14);
+                return 0;
+            }
+        })
+        .success();
+    }
+
+    #[test]
+    fn reserve() {
+        (assert_c! {
+            #include <assert.h>
+            #include "rustsat.h"
+
+            void clause_counter(int lit, void *data) {
+                if (!lit) {
+                    int *cnt = (int *)data;
+                    (*cnt)++;
+                }
+            }
+
+            int main() {
+                DbTotalizer *tot = tot_new();
+                assert(tot_add(tot, 1) == Ok);
+                assert(tot_add(tot, 2) == Ok);
+                assert(tot_add(tot, 3) == Ok);
+                assert(tot_add(tot, 4) == Ok);
+                uint32_t n_used = 4;
+                uint32_t n_clauses = 0;
+                tot_reserve(tot, &n_used);
+                assert(n_used == 12);
+                tot_encode_ub(tot, 2, 6, &n_used, &clause_counter, &n_clauses);
+                assert(n_used == 12);
+                tot_encode_ub(tot, 0, 4, &n_used, &clause_counter, &n_clauses);
+                assert(n_used == 12);
+                tot_drop(tot);
                 return 0;
             }
         })

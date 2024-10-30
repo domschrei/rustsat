@@ -6,7 +6,10 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
-
+#define RUSTSAT_VERSION 0.6.1
+#define RUSTSAT_VERSION_MAJOR 0
+#define RUSTSAT_VERSION_MINOR 6
+#define RUSTSAT_VERSION_PATCH 1
 
 #ifdef __cplusplus
 namespace RustSAT {
@@ -149,6 +152,11 @@ void dpw_drop(struct DynamicPolyWatchdog *dpw);
  * # Safety
  *
  * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
+ *
+ * # Panics
+ *
+ * - If `min_bound <= max_bound`.
+ * - If the encoding ran out of memory
  */
 void dpw_encode_ub(struct DynamicPolyWatchdog *dpw,
                    size_t min_bound,
@@ -205,6 +213,11 @@ bool dpw_is_max_precision(struct DynamicPolyWatchdog *dpw);
  * # Safety
  *
  * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
+ *
+ * # Panics
+ *
+ * - If `min_bound <= max_bound`.
+ * - If the encoding ran out of memory
  */
 void dpw_limit_range(struct DynamicPolyWatchdog *dpw,
                      size_t min_value,
@@ -230,6 +243,18 @@ struct DynamicPolyWatchdog *dpw_new(void);
  * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
  */
 size_t dpw_next_precision(struct DynamicPolyWatchdog *dpw);
+
+/**
+ * Reserves all auxilliary variables that the encoding might need
+ *
+ * All calls to [`dpw_encode_ub`] following a call to this function are guaranteed to not increase
+ * the value of `n_vars_used`. This does _not_ hold if [`dpw_add`] is called in between
+ *
+ * # Safety
+ *
+ * `dpw` must be a return value of [`dpw_new`] that [`dpw_drop`] has not yet been called on.
+ */
+void dpw_reserve(struct DynamicPolyWatchdog *dpw, uint32_t *n_vars_used);
 
 /**
  * Set the precision at which to build the encoding at. With `divisor = 8` the encoding will
@@ -291,6 +316,11 @@ void gte_drop(struct DbGte *gte);
  * # Safety
  *
  * `gte` must be a return value of [`gte_new`] that [`gte_drop`] has not yet been called on.
+ *
+ * # Panics
+ *
+ * - If `min_bound <= max_bound`.
+ * - If the encoding ran out of memory
  */
 void gte_encode_ub(struct DbGte *gte,
                    size_t min_bound,
@@ -320,6 +350,18 @@ enum MaybeError gte_enforce_ub(struct DbGte *gte,
  * Creates a new [`DbGte`] cardinality encoding
  */
 struct DbGte *gte_new(void);
+
+/**
+ * Reserves all auxilliary variables that the encoding might need
+ *
+ * All calls to [`gte_encode_ub`] following a call to this function are guaranteed to not increase
+ * the value of `n_vars_used`. This does _not_ hold if [`gte_add`] is called in between
+ *
+ * # Safety
+ *
+ * `gte` must be a return value of [`gte_new`] that [`gte_drop`] has not yet been called on.
+ */
+void gte_reserve(struct DbGte *gte, uint32_t *n_vars_used);
 
 /**
  * Adds a new input literal to a [`DbTotalizer`]
@@ -355,8 +397,12 @@ void tot_drop(struct DbTotalizer *tot);
  * The min and max bounds are inclusive. After a call to [`tot_encode_ub`] with `min_bound=2` and
  * `max_bound=4` bound including `<= 2` and `<= 4` can be enforced.
  *
- * A call to `var_manager` must yield a new variable. The encoding will be returned via the given
- * callback function as 0-terminated clauses (in the same way as IPASIR's `add`).
+ * Clauses are returned via the `collector`. The `collector` function should expect clauses to be
+ * passed similarly to `ipasir_add`, as a 0-terminated sequence of literals where the literals are
+ * passed as the first argument and the `collector_data` as a second.
+ *
+ * `n_vars_used` must be the number of variables already used and will be incremented by the
+ * number of variables used up in the encoding.
  *
  * # Safety
  *
@@ -364,7 +410,8 @@ void tot_drop(struct DbTotalizer *tot);
  *
  * # Panics
  *
- * If `min_bound <= max_bound`.
+ * - If `min_bound <= max_bound`.
+ * - If the encoding ran out of memory
  */
 void tot_encode_ub(struct DbTotalizer *tot,
                    size_t min_bound,
@@ -388,6 +435,18 @@ enum MaybeError tot_enforce_ub(struct DbTotalizer *tot, size_t ub, int *assump);
  * Creates a new [`DbTotalizer`] cardinality encoding
  */
 struct DbTotalizer *tot_new(void);
+
+/**
+ * Reserves all auxilliary variables that the encoding might need
+ *
+ * All calls to [`tot_encode_ub`] following a call to this function are guaranteed to not increase
+ * the value of `n_vars_used`. This does _not_ hold if [`tot_add`] is called in between
+ *
+ * # Safety
+ *
+ * `tot` must be a return value of [`tot_new`] that [`tot_drop`] has not yet been called on.
+ */
+void tot_reserve(struct DbTotalizer *tot, uint32_t *n_vars_used);
 
 #ifdef __cplusplus
 }  // extern "C"

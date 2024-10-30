@@ -22,7 +22,7 @@ jobs:
     name: Build and test
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-22.04, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout sources
@@ -83,15 +83,15 @@ jobs:
 
   pystubs:
     name: Test python stubs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Install maturin from PyPI
-        uses: install-pinned/maturin@42909d1d2133f0cf2a1f1228fa57b2d0fe11f6d9
+        uses: install-pinned/maturin@ab13013f30551a87b56c6a9c2bdd7b6287581def
       - name: Install mypy from PyPI
-        uses: install-pinned/mypy@2b552bed479e3f7065314667b670f7303619e989
+        uses: install-pinned/mypy@15172e0901cf7045a4181d12138212867fb66389
       - name: Install python project
         run: maturin build -m pyapi/Cargo.toml && pip install --no-index --find-links target/wheels/ rustsat
       - name: Test stubs
@@ -143,12 +143,13 @@ jobs:
           path: dist
 
   sdist:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
+          maturin-version: '1.6.0'
           command: sdist
           args: --out dist --manifest-path pyapi/Cargo.toml
       - name: Upload sdist
